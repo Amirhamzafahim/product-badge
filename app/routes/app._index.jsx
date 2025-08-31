@@ -1,328 +1,236 @@
-import { useEffect } from "react";
-import { useFetcher } from "@remix-run/react";
+
+// 1. Replace app/routes/app._index.jsx with this:
+
+import { json } from "@remix-run/node";
+import { useLoaderData, useSubmit, useFetcher } from "@remix-run/react";
+import { useState } from "react";
 import {
   Page,
   Layout,
-  Text,
   Card,
   Button,
   BlockStack,
-  Box,
-  List,
-  Link,
   InlineStack,
+  Text,
+  Thumbnail,
+  Badge,
+  Box,
 } from "@shopify/polaris";
-import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
+import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
-
-  return null;
-};
-
-export const action = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
+  
+  // GraphQL query to get products with metafields
+  const response = await admin.graphql(`
+    query getProducts {
+      products(first: 20) {
+        edges {
+          node {
             id
             title
             handle
             status
-            variants(first: 10) {
+            images(first: 1) {
               edges {
                 node {
-                  id
-                  price
-                  barcode
-                  createdAt
+                  url
+                  altText
                 }
               }
             }
+            variants(first: 1) {
+              edges {
+                node {
+                  price
+                }
+              }
+            }
+            metafield(namespace: "badge_app", key: "badge_type") {
+              value
+            }
           }
         }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-        },
-      },
-    },
-  );
+      }
+    }
+  `);
+
   const responseJson = await response.json();
-  const product = responseJson.data.productCreate.product;
-  const variantId = product.variants.edges[0].node.id;
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyRemixTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
+  const products = responseJson.data.products.edges.map(edge => ({
+    ...edge.node,
+    image: edge.node.images.edges[0]?.node,
+    price: edge.node.variants.edges[0]?.node.price,
+    currentBadge: edge.node.metafield?.value || ""
+  }));
+
+  return json({ products });
+};
+
+export const action = async ({ request }) => {
+  const { admin } = await authenticate.admin(request);
+  const formData = await request.formData();
+  
+  const productId = formData.get("productId");
+  const badgeType = formData.get("badgeType");
+  
+  // Update product metafield using GraphQL
+  const mutation = `
+    mutation productUpdate($product: ProductInput!) {
+      productUpdate(input: $product) {
+        product {
           id
-          price
-          barcode
-          createdAt
+        }
+        userErrors {
+          field
+          message
         }
       }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
-    },
-  );
-  const variantResponseJson = await variantResponse.json();
+    }
+  `;
 
-  return {
-    product: responseJson.data.productCreate.product,
-    variant: variantResponseJson.data.productVariantsBulkUpdate.productVariants,
+  const variables = {
+    product: {
+      id: productId,
+      metafields: [
+        {
+          namespace: "badge_app",
+          key: "badge_type",
+          value: badgeType,
+          type: "single_line_text_field"
+        }
+      ]
+    }
   };
+
+  await admin.graphql(mutation, { variables });
+  
+  return json({ success: true, productId, badgeType });
 };
 
 export default function Index() {
+  const { products } = useLoaderData();
+  const submit = useSubmit();
   const fetcher = useFetcher();
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
-  const productId = fetcher.data?.product?.id.replace(
-    "gid://shopify/Product/",
-    "",
-  );
+  const [updatingProduct, setUpdatingProduct] = useState(null);
 
-  useEffect(() => {
-    if (productId) {
-      shopify.toast.show("Product created");
-    }
-  }, [productId, shopify]);
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+  const badgeTypes = [
+    { value: "", label: "No Badge", color: "subdued" },
+    { value: "sale", label: "Sale", color: "critical" },
+    { value: "new", label: "New", color: "success" },
+    { value: "best_seller", label: "Best Seller", color: "info" },
+    { value: "limited", label: "Limited Edition", color: "warning" },
+  ];
+
+  const handleBadgeUpdate = (productId, badgeType) => {
+    setUpdatingProduct(productId);
+    
+    const formData = new FormData();
+    formData.append("productId", productId);
+    formData.append("badgeType", badgeType);
+    
+    submit(formData, { 
+      method: "post",
+      onSettled: () => setUpdatingProduct(null)
+    });
+  };
 
   return (
     <Page>
-      <TitleBar title="Remix app template">
-        <button variant="primary" onClick={generateProduct}>
-          Generate a product
-        </button>
-      </TitleBar>
-      <BlockStack gap="500">
-        <Layout>
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="500">
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Congrats on creating a new Shopify app 🎉
-                  </Text>
-                  <Text variant="bodyMd" as="p">
-                    This embedded app template uses{" "}
-                    <Link
-                      url="https://shopify.dev/docs/apps/tools/app-bridge"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      App Bridge
-                    </Link>{" "}
-                    interface examples like an{" "}
-                    <Link url="/app/additional" removeUnderline>
-                      additional page in the app nav
-                    </Link>
-                    , as well as an{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      Admin GraphQL
-                    </Link>{" "}
-                    mutation demo, to provide a starting point for app
-                    development.
-                  </Text>
-                </BlockStack>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingMd">
-                    Get started with products
-                  </Text>
-                  <Text as="p" variant="bodyMd">
-                    Generate a product with GraphQL and get the JSON output for
-                    that product. Learn more about the{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      productCreate
-                    </Link>{" "}
-                    mutation in our API references.
-                  </Text>
-                </BlockStack>
-                <InlineStack gap="300">
-                  <Button loading={isLoading} onClick={generateProduct}>
-                    Generate a product
-                  </Button>
-                  {fetcher.data?.product && (
-                    <Button
-                      url={`shopify:admin/products/${productId}`}
-                      target="_blank"
-                      variant="plain"
-                    >
-                      View product
-                    </Button>
-                  )}
-                </InlineStack>
-                {fetcher.data?.product && (
-                  <>
-                    <Text as="h3" variant="headingMd">
-                      {" "}
-                      productCreate mutation
-                    </Text>
-                    <Box
-                      padding="400"
-                      background="bg-surface-active"
-                      borderWidth="025"
-                      borderRadius="200"
-                      borderColor="border"
-                      overflowX="scroll"
-                    >
-                      <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.product, null, 2)}
-                        </code>
-                      </pre>
-                    </Box>
-                    <Text as="h3" variant="headingMd">
-                      {" "}
-                      productVariantsBulkUpdate mutation
-                    </Text>
-                    <Box
-                      padding="400"
-                      background="bg-surface-active"
-                      borderWidth="025"
-                      borderRadius="200"
-                      borderColor="border"
-                      overflowX="scroll"
-                    >
-                      <pre style={{ margin: 0 }}>
-                        <code>
-                          {JSON.stringify(fetcher.data.variant, null, 2)}
-                        </code>
-                      </pre>
-                    </Box>
-                  </>
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-          <Layout.Section variant="oneThird">
+      <TitleBar title="Product Badge Manager" />
+      <Layout>
+        <Layout.Section>
+          <Card>
             <BlockStack gap="500">
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    App template specs
+              <Text as="h2" variant="headingMd">
+                Manage Product Badges
+              </Text>
+              <Text as="p" variant="bodyMd">
+                Add badges to your products to highlight special offers, new arrivals, and bestsellers.
+              </Text>
+              
+              {products.length === 0 ? (
+                <Box padding="400" borderWidth="025" borderRadius="200" borderColor="border">
+                  <Text as="p" variant="bodyMd" alignment="center">
+                    No products found. Create some products first to manage badges.
                   </Text>
-                  <BlockStack gap="200">
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Framework
-                      </Text>
-                      <Link
-                        url="https://remix.run"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        Remix
-                      </Link>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Database
-                      </Text>
-                      <Link
-                        url="https://www.prisma.io/"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        Prisma
-                      </Link>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        Interface
-                      </Text>
-                      <span>
-                        <Link
-                          url="https://polaris.shopify.com"
-                          target="_blank"
-                          removeUnderline
-                        >
-                          Polaris
-                        </Link>
-                        {", "}
-                        <Link
-                          url="https://shopify.dev/docs/apps/tools/app-bridge"
-                          target="_blank"
-                          removeUnderline
-                        >
-                          App Bridge
-                        </Link>
-                      </span>
-                    </InlineStack>
-                    <InlineStack align="space-between">
-                      <Text as="span" variant="bodyMd">
-                        API
-                      </Text>
-                      <Link
-                        url="https://shopify.dev/docs/api/admin-graphql"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        GraphQL API
-                      </Link>
-                    </InlineStack>
-                  </BlockStack>
+                </Box>
+              ) : (
+                <BlockStack gap="400">
+                  {products.map((product) => (
+                    <Card key={product.id} sectioned>
+                      <InlineStack align="space-between" blockAlign="center">
+                        <InlineStack gap="400" blockAlign="center">
+                          {product.image && (
+                            <Thumbnail
+                              source={product.image.url}
+                              alt={product.image.altText || product.title}
+                              size="medium"
+                            />
+                          )}
+                          <BlockStack gap="200">
+                            <Text as="h3" variant="headingMd">
+                              {product.title}
+                            </Text>
+                            <Text as="p" variant="bodyMd" tone="subdued">
+                              ${product.price} • Status: {product.status}
+                            </Text>
+                            {product.currentBadge && (
+                              <Badge tone={badgeTypes.find(b => b.value === product.currentBadge)?.color || "subdued"}>
+                                Current: {badgeTypes.find(b => b.value === product.currentBadge)?.label || "Unknown"}
+                              </Badge>
+                            )}
+                          </BlockStack>
+                        </InlineStack>
+                        
+                        <InlineStack gap="200">
+                          {badgeTypes.map((badge) => (
+                            <Button
+                              key={badge.value}
+                              size="slim"
+                              variant={product.currentBadge === badge.value ? "primary" : "secondary"}
+                              tone={badge.color !== "subdued" ? badge.color : undefined}
+                              loading={updatingProduct === product.id}
+                              onClick={() => handleBadgeUpdate(product.id, badge.value)}
+                            >
+                              {badge.label}
+                            </Button>
+                          ))}
+                        </InlineStack>
+                      </InlineStack>
+                    </Card>
+                  ))}
                 </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Next steps
-                  </Text>
-                  <List>
-                    <List.Item>
-                      Build an{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/getting-started/build-app-example"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        {" "}
-                        example app
-                      </Link>{" "}
-                      to get started
-                    </List.Item>
-                    <List.Item>
-                      Explore Shopify’s API with{" "}
-                      <Link
-                        url="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-                        target="_blank"
-                        removeUnderline
-                      >
-                        GraphiQL
-                      </Link>
-                    </List.Item>
-                  </List>
-                </BlockStack>
-              </Card>
+              )}
             </BlockStack>
-          </Layout.Section>
-        </Layout>
-      </BlockStack>
+          </Card>
+        </Layout.Section>
+        
+        <Layout.Section variant="oneThird">
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Badge Types
+              </Text>
+              <BlockStack gap="200">
+                {badgeTypes.filter(b => b.value !== "").map((badge) => (
+                  <Box key={badge.value} padding="200" borderWidth="025" borderRadius="200" borderColor="border">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Badge tone={badge.color}>{badge.label}</Badge>
+                      <Text as="span" variant="bodyMd">
+                        {badge.value === "sale" && "Perfect for discounted items"}
+                        {badge.value === "new" && "Highlight new arrivals"}
+                        {badge.value === "best_seller" && "Show popular products"}
+                        {badge.value === "limited" && "Create urgency"}
+                      </Text>
+                    </InlineStack>
+                  </Box>
+                ))}
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+      </Layout>
     </Page>
   );
 }

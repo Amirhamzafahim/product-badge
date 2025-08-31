@@ -2,12 +2,14 @@
 
 client_id = "6dd00642523e78864bf6e61b9845723f"
 name = "product-badge"
-application_url = "https://example.com/"
+application_url = "https://bunny-tips-handbook-spectacular.trycloudflare.com"
 embedded = true
 handle = "product-badge-10"
 
 [build]
 include_config_on_deploy = true
+dev_store_url = "mythemedevlopment.myshopify.com"
+automatically_update_urls_on_dev = true
 
 [webhooks]
 api_version = "2025-07"
@@ -22,10 +24,14 @@ api_version = "2025-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products"
+scopes = "read_products,write_products"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://bunny-tips-handbook-spectacular.trycloudflare.com/auth/callback",
+  "https://bunny-tips-handbook-spectacular.trycloudflare.com/auth/shopify/callback",
+  "https://bunny-tips-handbook-spectacular.trycloudflare.com/api/auth/callback"
+]
 
 [pos]
 embedded = false
