@@ -2,7 +2,7 @@
 
 client_id = "6dd00642523e78864bf6e61b9845723f"
 name = "product-badge"
-application_url = "https://bunny-tips-handbook-spectacular.trycloudflare.com"
+application_url = "https://unusual-identifies-moss-bringing.trycloudflare.com"
 embedded = true
 handle = "product-badge-10"
 
@@ -28,9 +28,9 @@ scopes = "read_products,write_products"
 
 [auth]
 redirect_urls = [
-  "https://bunny-tips-handbook-spectacular.trycloudflare.com/auth/callback",
-  "https://bunny-tips-handbook-spectacular.trycloudflare.com/auth/shopify/callback",
-  "https://bunny-tips-handbook-spectacular.trycloudflare.com/api/auth/callback"
+  "https://unusual-identifies-moss-bringing.trycloudflare.com/auth/callback",
+  "https://unusual-identifies-moss-bringing.trycloudflare.com/auth/shopify/callback",
+  "https://unusual-identifies-moss-bringing.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
